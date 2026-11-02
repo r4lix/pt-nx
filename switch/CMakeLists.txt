@@ -213,22 +213,15 @@ endif()
 # ---- .nro ---------------------------------------------------------------------------------------------------------------------
 
 set(DEVKITPRO $ENV{DEVKITPRO})
-# Nothing of the game goes into a public .nro: the icon is the port's own (switch/assets/icon.jpg, drawn by switch/tools/make_icon.py), and
-# the start-up picture is read at run time from the player's own dump (sce_sys/pic1.png). A personal build may carry the PS4 title art:
-# icon.jpg and cover.jpg in switch/assets/private/ (.gitignore keeps that folder out of the repository) go into pt.nro with the original
-# title. pt-public.nro (target pt_public_nro) is packed from the same program without them, for releases.
+# Both .nro files present the game as the original did: its title art as the icon (switch/assets/icon.jpg, via SteamGridDB, as Switch
+# homebrew ports commonly use), "P.T." by 7780s Studio, the name it was released under. No game file goes in: the start-up picture is read
+# at run time from the player's own dump (sce_sys/pic1.png). A personal build may carry the PS4 title picture as cover.jpg in
+# switch/assets/private/ (.gitignore keeps that folder out of the repository), which goes into pt.nro only; pt-public.nro (target
+# pt_public_nro) is packed from the same program without it, for releases.
 set(PT_PRIVATE_ASSETS ${PT_ROOT}/switch/assets/private)
-set(PT_PUBLIC_TITLE "P.T. (Switch port)")
-set(PT_PUBLIC_AUTHOR "r4lix, after LoreanXavier's P.T. PC Port")
-if(EXISTS ${PT_PRIVATE_ASSETS}/icon.jpg)
-  set(PT_NRO_ICON ${PT_PRIVATE_ASSETS}/icon.jpg)
-  set(PT_NRO_TITLE "P.T.")
-  set(PT_NRO_AUTHOR "7780s Studio")
-else()
-  set(PT_NRO_ICON ${PT_ROOT}/switch/assets/icon.jpg)
-  set(PT_NRO_TITLE ${PT_PUBLIC_TITLE})
-  set(PT_NRO_AUTHOR ${PT_PUBLIC_AUTHOR})
-endif()
+set(PT_NRO_ICON ${PT_ROOT}/switch/assets/icon.jpg)
+set(PT_NRO_TITLE "P.T.")
+set(PT_NRO_AUTHOR "7780s Studio")
 if(EXISTS ${PT_PRIVATE_ASSETS}/cover.jpg)
   set(PT_COVER_COMMAND ${CMAKE_COMMAND} -E copy ${PT_PRIVATE_ASSETS}/cover.jpg ${ROMFS}/cover.jpg)
 else()
@@ -247,8 +240,8 @@ add_custom_target(pt_public_nro
   COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/romfs-public
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${ROMFS} ${CMAKE_BINARY_DIR}/romfs-public
   COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/romfs-public/cover.jpg ${CMAKE_BINARY_DIR}/romfs-public/test_env.txt
-  COMMAND ${DEVKITPRO}/tools/bin/nacptool --create ${PT_PUBLIC_TITLE} ${PT_PUBLIC_AUTHOR} "${PT_VERSION}" ${CMAKE_BINARY_DIR}/pt-public.nacp
-  COMMAND ${DEVKITPRO}/tools/bin/elf2nro $<TARGET_FILE:pt> ${CMAKE_BINARY_DIR}/pt-public.nro --icon=${PT_ROOT}/switch/assets/icon.jpg
+  COMMAND ${DEVKITPRO}/tools/bin/nacptool --create ${PT_NRO_TITLE} ${PT_NRO_AUTHOR} "${PT_VERSION}" ${CMAKE_BINARY_DIR}/pt-public.nacp
+  COMMAND ${DEVKITPRO}/tools/bin/elf2nro $<TARGET_FILE:pt> ${CMAKE_BINARY_DIR}/pt-public.nro --icon=${PT_NRO_ICON}
           --nacp=${CMAKE_BINARY_DIR}/pt-public.nacp --romfsdir=${CMAKE_BINARY_DIR}/romfs-public
   DEPENDS pt
   VERBATIM)

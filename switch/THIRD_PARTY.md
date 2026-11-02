@@ -30,4 +30,5 @@ Portions of this software are copyright © The FreeType Project (www.freetype.or
 
 The frame generation shaders are not included: they are read at run time from the player's own `Lossless.dll` (Lossless
 Scaling). No file of P.T. is included either: the game's archives, and optionally its title picture, come from the player's
-own dump.
+own dump. The `.nro`'s icon is P.T.'s title art (`switch/assets/icon.jpg`, via SteamGridDB), as Switch homebrew ports commonly
+use; P.T. and its art are © Konami.
