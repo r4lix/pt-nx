@@ -214,16 +214,15 @@ endif()
 
 set(DEVKITPRO $ENV{DEVKITPRO})
 # Both .nro files present the game as the original did: its title art as the icon (switch/assets/icon.jpg, via SteamGridDB, as Switch
-# homebrew ports commonly use), "P.T." by 7780s Studio, the name it was released under. No game file goes in: the start-up picture is read
-# at run time from the player's own dump (sce_sys/pic1.png). A personal build may carry the PS4 title picture as cover.jpg in
-# switch/assets/private/ (.gitignore keeps that folder out of the repository), which goes into pt.nro only; pt-public.nro (target
-# pt_public_nro) is packed from the same program without it, for releases.
+# homebrew ports commonly use), "P.T." by 7780s Studio, the name it was released under, and its title picture as the start-up screen
+# (switch/assets/cover.jpg; without it the game reads sce_sys/pic1.png from the player's dump). pt-public.nro (target pt_public_nro) is
+# packed from the same program without test files, for releases.
 set(PT_PRIVATE_ASSETS ${PT_ROOT}/switch/assets/private)
 set(PT_NRO_ICON ${PT_ROOT}/switch/assets/icon.jpg)
 set(PT_NRO_TITLE "P.T.")
 set(PT_NRO_AUTHOR "7780s Studio")
-if(EXISTS ${PT_PRIVATE_ASSETS}/cover.jpg)
-  set(PT_COVER_COMMAND ${CMAKE_COMMAND} -E copy ${PT_PRIVATE_ASSETS}/cover.jpg ${ROMFS}/cover.jpg)
+if(EXISTS ${PT_ROOT}/switch/assets/cover.jpg)
+  set(PT_COVER_COMMAND ${CMAKE_COMMAND} -E copy ${PT_ROOT}/switch/assets/cover.jpg ${ROMFS}/cover.jpg)
 else()
   set(PT_COVER_COMMAND ${CMAKE_COMMAND} -E rm -f ${ROMFS}/cover.jpg)
 endif()
@@ -239,7 +238,7 @@ add_custom_command(TARGET pt POST_BUILD
 add_custom_target(pt_public_nro
   COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/romfs-public
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${ROMFS} ${CMAKE_BINARY_DIR}/romfs-public
-  COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/romfs-public/cover.jpg ${CMAKE_BINARY_DIR}/romfs-public/test_env.txt
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/romfs-public/test_env.txt
   COMMAND ${DEVKITPRO}/tools/bin/nacptool --create ${PT_NRO_TITLE} ${PT_NRO_AUTHOR} "${PT_VERSION}" ${CMAKE_BINARY_DIR}/pt-public.nacp
   COMMAND ${DEVKITPRO}/tools/bin/elf2nro $<TARGET_FILE:pt> ${CMAKE_BINARY_DIR}/pt-public.nro --icon=${PT_NRO_ICON}
           --nacp=${CMAKE_BINARY_DIR}/pt-public.nacp --romfsdir=${CMAKE_BINARY_DIR}/romfs-public

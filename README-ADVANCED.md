@@ -107,7 +107,8 @@ SDK (or Docker) for the shaders.
   licences). The release was built with nxvk revision `556cc2e`.
 - **lsfg-vk** (GPL-3.0-or-later), the frame generation backend, here as used by NetherSX2_nx.
 - Everything else compiled into the `.nro` is listed in [switch/THIRD_PARTY.md](switch/THIRD_PARTY.md).
-- The icon is P.T.'s own title art (via SteamGridDB), and the homebrew menu shows the game as released: "P.T." by 7780s Studio.
+- The icon (via SteamGridDB) and the start-up picture (the PS4 title picture) are P.T.'s own art, © Konami, and the homebrew menu
+  shows the game as released: "P.T." by 7780s Studio. If the rights holder wants the art removed, open an issue and it will be taken out.
 
 The port's own code is MIT, like the PC port. nxvk and lsfg-vk are linked statically into the `.nro`, so the `.nro` as a
 whole is distributed under the GPL (version 3); this repository is its complete source.

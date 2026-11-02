@@ -34,8 +34,8 @@ sdmc:/switch/pt/photos/                     pictures from the photo mode (PC Set
 * FAT32 and exFAT cards both work: `chunk1.psarc` (422 MB) and `texture.qar` (892 MB) are under the 4 GB FAT32 file limit.
 * Optional: `sce_sys/pic1.png` from the dump, copied to `sdmc:/switch/pt/game/CUSA01127/sce_sys/pic1.png`, is shown while the game
   loads (the PS4 title picture). The .nro shows the game as the original did: P.T.'s title art as its icon (`switch/assets/icon.jpg`,
-  via SteamGridDB), "P.T." by 7780s Studio. A personal build can also carry the title picture as `cover.jpg` in `switch/assets/private/`
-  (kept out of the repository); `pt-public.nro` (`ninja pt_public_nro`) is packed from the same program without it, for releases.
+  via SteamGridDB), "P.T." by 7780s Studio. Its start-up screen is the PS4 title picture (`switch/assets/cover.jpg`).
+  `pt-public.nro` (`ninja pt_public_nro`) is packed from the same program without test files, for releases.
 * Start the game with the homebrew menu in **title takeover mode** (hold **R** while launching a game from the home menu, then pick it).
   Launched from the album ("applet mode"), the homebrew only gets a fraction of the RAM.
 * `sdmc:/switch/pt/save/pt.log` is the first place to look when it does not start. With `nxlink -a <console ip> -s pt.nro` the log
