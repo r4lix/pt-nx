@@ -105,14 +105,17 @@ void main() {
     vec3 span_hi = subgroupMax(outside ? vec3(-3.0e38) : world);
     vec3 centre = 0.5 * (span_lo + span_hi);
     vec3 half_span = 0.5 * (span_hi - span_lo);
-    // the running lanes share the list (lane of rank r tests entries r, r + lanes, ...): bit k of keep (high:low) is set when entry k's box,
-    // [-1, 1] on its own axes, overlaps the span; the OR gives every lane the same entries to walk
-    uvec4 running = subgroupBallot(true);
-    uint lanes = subgroupBallotBitCount(running);
-    uint rank = subgroupBallotExclusiveBitCount(running);
+    // the lanes that are not helpers share the list (lane of rank r tests entries r, r + lanes, ...): bit k of keep (high:low) is set when
+    // entry k's box, [-1, 1] on its own axes, overlaps the span; the OR gives every lane the same entries to walk. Helper lanes take no
+    // share: with them in it, subgroups on the target's bottom edge lost probes on the Switch (NVK), a strip of wrong light along the last
+    // partial 16x16 tile row (scene rows 576-611 at 1088x612), visible whenever the lens effect is off
+    bool tester = !gl_HelperInvocation;
+    uvec4 testers = subgroupBallot(tester);
+    uint lanes = subgroupBallotBitCount(testers);
+    uint rank = subgroupBallotExclusiveBitCount(testers);
     uint keep_low = 0u;
     uint keep_high = 0u;
-    for (uint k = rank; k < count; k += lanes) {
+    for (uint k = rank; tester && k < count; k += lanes) {
         mat4 box = frame.probes[ListEntry(k)].box;
         vec3 qc = (box * vec4(centre, 1.0)).xyz;
         vec3 qe = abs(box[0].xyz) * half_span.x + abs(box[1].xyz) * half_span.y + abs(box[2].xyz) * half_span.z;
