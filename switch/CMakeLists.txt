@@ -126,7 +126,7 @@ target_compile_definitions(expat PRIVATE _GNU_SOURCE)
 
 # ---- generated headers (as ../CMakeLists.txt makes them) ----------------------------------------------------------------------
 
-set(PT_VERSION "1.0.0")
+set(PT_VERSION "1.0.1")
 set(PT_UPDATE_MANIFEST_URL "https://github.com/LoreanXavier/pt-pc/releases/latest/download/latest.json")
 execute_process(COMMAND ${CMAKE_COMMAND} "-DOUT=${CMAKE_BINARY_DIR}/generated/pt_version.h" "-DPT_VERSION=${PT_VERSION}"
   "-DPT_UPDATE_MANIFEST_URL=${PT_UPDATE_MANIFEST_URL}" -P "${PT_ROOT}/cmake/version.cmake")

@@ -55,12 +55,11 @@ in C++ and Vulkan. It runs from the homebrew menu on a console with Atmosphère 
 The game was tuned with the GPU at **1152 MHz** and the memory at **1600 MHz or more**: the memory clock matters as much as
 the GPU clock here. There are two ways to get there:
 
-- **Set the clocks in your clock manager.** The game's default (**System** under **GPU clock** in the Minus menu) leaves
-  the clocks to it.
-- **Or let the game raise them**: choose **Automatic** under **GPU clock**. While frames are too slow it raises the GPU, the
+- **Let the game raise them** (the default): **Automatic** under **GPU clock** in the Minus menu. While frames are too slow it raises the GPU, the
   CPU and the memory, up to its ceilings; your clock manager's own setting stays the floor, and it only goes as far as the
-  clock manager allows. Raise the **Automatic ceiling** to 1152 MHz: it starts at 768 MHz, the console's own docked
-  maximum. The CPU ceiling starts at 1785 MHz, the console's own boost rate.
+  clock manager allows. The **Automatic ceiling** starts at 1152 MHz and the CPU ceiling at 1785 MHz, the console's own
+  boost rate.
+- **Or set the clocks in your clock manager** and choose **System** under **GPU clock**, which leaves them to it.
 
 A fixed GPU rate can also be picked in the same menu.
 

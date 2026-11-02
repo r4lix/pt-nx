@@ -112,9 +112,9 @@ extern "C" void pt_switch_release_cpu_clock();
 // GPU clock control: see ReadSwitchClockConfig
 struct SwitchClockConfig {
     unsigned gpu_mhz = 0;
-    unsigned max_mhz = 768;
+    unsigned max_mhz = 1152;  // the automatic clock's GPU ceiling: what the port was tuned at (clock managers clamp it to what they allow)
     unsigned cpu_max_mhz = 1785;  // the automatic clock's CPU ceiling (1785: the console's own boost rate, no overclock needed)
-    bool automatic = false;
+    bool automatic = true;    // new players get the automatic clock; switch.ini keeps their choice afterwards
     unsigned applied_mhz = 0;  // the clock we last set: held (re-applied when the system changes it)
     unsigned pinned_w = 0;     // --render-size=WxH: a fixed scene render size (no adaptation), for comparable measurements
     unsigned pinned_h = 0;
