@@ -1,4 +1,5 @@
 # pt-nx
+<img width="1547" height="629" alt="image" src="https://github.com/user-attachments/assets/e421e1cc-2bae-49bb-95fc-c20b63aac6c1" />
 
 P.T. (Silent Hills) running natively on the Nintendo Switch, a port of [LoreanXavier's P.T. PC Port](https://github.com/LoreanXavier/pt-pc).
 
