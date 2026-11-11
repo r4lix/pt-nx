@@ -7,7 +7,7 @@ cd /in
 ok=0; bad=0
 : > /out/_compile.log
 for f in *.vert *.frag *.comp; do
-  if glslangValidator -V --target-env vulkan1.3 "$f" -o "/out/$f.spv" >> /out/_compile.log 2>&1; then
+  if glslangValidator -V -DPT_SWITCH=1 --target-env vulkan1.3 "$f" -o "/out/$f.spv" >> /out/_compile.log 2>&1; then
     spirv-opt -O "/out/$f.spv" -o "/out/$f.spv" >> /out/_compile.log 2>&1 || true
     ok=$((ok+1))
   else

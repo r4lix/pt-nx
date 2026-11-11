@@ -124,6 +124,8 @@ struct RenderToggles {
     bool bloom = true;
     bool color_lut = true;
     bool fxaa = true;
+    bool smaa = false;  // SMAA 1x in place of FXAA (PT_SMAA=1 starts it on; TAA wins when both are on)
+    bool taa = false;  // temporal anti-aliasing in place of FXAA (jittered projection, history reprojected from depth); PT_TAA=1 starts it on
     bool depth_of_field = true;
     bool film_grain = true;
     bool distortion = true;
@@ -229,6 +231,9 @@ public:
     RenderToggles toggles;
     int light_variant = 0;  // test (PT_LIGHT_VARIANTS): 0 the light_all_half shaders, n the n-th variant listed there
     AppSettings::Graphics graphics;
+    // Shadow map tile size in pixels (512..2048), 0 = follow graphics.shadow_quality. The Switch menu sets it (default 1024 there): the atlas is 4x
+    // the tile each way in 32-bit depth, so 1024 = 64 MB, 1536 = 144 MB, 2048 = 256 MB, and the larger sizes cost GPU time.
+    static inline uint32_t shadow_tile_override = 0;
     static constexpr VkFormat kHdrTargetFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat kDepthTargetFormat = VK_FORMAT_D32_SFLOAT;
     static constexpr VkFormat kPostTargetFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -434,6 +439,14 @@ private:
     RenderTarget flare_;
     RenderTarget ldr_[2];
     RenderTarget history_;
+    RenderTarget smaa_edges_;
+    RenderTarget smaa_weights_;
+    vk::Image smaa_area_;
+    vk::Image smaa_search_;
+    VkPipeline smaa_edges_pipe_ = VK_NULL_HANDLE;
+    VkPipeline smaa_weights_pipe_ = VK_NULL_HANDLE;
+    VkPipeline smaa_blend_pipe_ = VK_NULL_HANDLE;
+    RenderTarget taa_history_;  // the previous TAA result (the slot after tonemapping)
     RenderTarget dof_half_;
     RenderTarget dof_quarter_[2];
     RenderTarget dof_eighth_[2];
@@ -477,6 +490,13 @@ private:
     VkExtent2D output_extent_{0, 0};
     bool targets_upscaled_ = false;
     bool history_valid_ = false;
+    // TAA state: the jitter of this frame, whether the history (history_) holds the previous resolved image, and a camera cut
+    bool taa_active_ = false;
+    bool taa_cut_ = true;
+    bool taa_history_valid_ = false;
+    uint32_t taa_index_ = 0;
+    glm::vec2 taa_jitter_ndc_{0.0f};
+    VkExtent2D taa_extent_{};
 
     vk::Image lut1_;
     vk::Image lut2_;
@@ -531,6 +551,7 @@ private:
     VkPipeline gaussian_ = VK_NULL_HANDLE;
     VkPipeline tonemap_ = VK_NULL_HANDLE;
     VkPipeline fxaa_ = VK_NULL_HANDLE;
+    VkPipeline taa_ = VK_NULL_HANDLE;
     VkPipeline mirror_temporal_pipeline_ = VK_NULL_HANDLE;
     VkPipeline dof_ratio_ = VK_NULL_HANDLE;
     VkPipeline dof_down_ = VK_NULL_HANDLE;

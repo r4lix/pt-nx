@@ -9,6 +9,7 @@
 #undef small
 #endif
 #include <imgui.h>
+#include <imgui_internal.h>  // the Switch menu restores the focused item and scroll position when it is opened again
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
@@ -150,6 +151,8 @@ struct SwitchGfx {
     bool frame_gen = false;    // LSFG frame generation (30 -> 60): needs the user's Lossless.dll on the SD card
     float lsfg_flow = 2.0f;    // its motion flow factor: higher is cheaper and coarser
     bool fidelity = false;     // the fidelity preset (Minus menu): the PS4 settings and full-size everything, far slower
+    int aa = 3;                // anti-aliasing: 0 off, 1 FXAA, 2 SMAA 1x, 3 TAA (default); the Minus menu sets it, switch.ini keeps it
+    int shadow_tile = 1024;    // shadow map size per light in pixels (512, 1024, 1536, 2048): the Minus menu sets it, switch.ini keeps it
     float target_ms = 30.0f;   // scene GPU budget per frame: 33.3 ms minus the composite/UI (measured ~1.1 ms: whole-frame minus scene GPU) minus margin
 };
 SwitchGfx g_switch_gfx;
@@ -1276,6 +1279,8 @@ void SaveSwitchConfig() {
     out << "fidelity=" << (g_switch_gfx.fidelity ? 1 : 0) << "\n";
     out << "size=" << kSwitchSizes[g_switch_gfx.level].width << "x" << kSwitchSizes[g_switch_gfx.level].height << "\n";
     out << "budget_ms=" << g_switch_gfx.target_ms << "\n";
+    out << "shadow_tile=" << g_switch_gfx.shadow_tile << "\n";
+    out << "aa=" << g_switch_gfx.aa << "\n";
     out << "gpu_mhz=" << (g_clock_config.automatic ? 0u : g_clock_config.gpu_mhz) << "\n";
     out << "max_mhz=" << g_clock_config.max_mhz << "\n";
     out << "cpu_max_mhz=" << g_clock_config.cpu_max_mhz << "\n";
@@ -1340,8 +1345,14 @@ void DrawSwitchSection(App& app) {
 
     ImGui::SeparatorText("Resolution");
     ImGui::Checkbox("Show fps and resolution", &g_switch_gfx.overlay);
+    // frame generation needs the lock (each image stays one VBlank, the pacing is its own): the box stays ticked and greyed while it is on
+    ImGui::BeginDisabled(g_switch_gfx.frame_gen);
     ImGui::Checkbox("Lock 30 fps", &g_switch_gfx.lock30);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Every frame stays on screen two VBlanks: a steady 30 fps.");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip(g_switch_gfx.frame_gen ? "Frame generation needs the 30 fps lock: turn it off below to change this."
+                                                  : "Every frame stays on screen two VBlanks: a steady 30 fps.");
+    }
     ImGui::Checkbox("Dynamic resolution", &g_switch_gfx.dynamic);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The scene render size follows the GPU time (steps between the sizes below).");
     ImGui::BeginDisabled(!g_switch_gfx.dynamic || !g_switch_gfx.lock30);
@@ -1462,6 +1473,35 @@ void DrawSwitchSection(App& app) {
                            "manager (Horizon OC, sys-clk) the requests are temporary overrides in it, cleared at exit or with System.");
     }
 
+    ImGui::SeparatorText("Image");
+    {
+        static constexpr const char* kAaNames[] = {"Off", "FXAA", "SMAA 1x", "TAA (smoothest, default)"};
+        if (ImGui::BeginCombo("Anti-aliasing", kAaNames[std::clamp(g_switch_gfx.aa, 0, 3)])) {
+            for (int i = 0; i < 4; ++i) {
+                if (ImGui::Selectable(kAaNames[i], i == g_switch_gfx.aa)) g_switch_gfx.aa = i;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("TAA blends the last frames (jittered), SMAA and FXAA smooth edges in one frame. Save to keep it.");
+    }
+    ImGui::SeparatorText("Shadows");
+    {
+        static constexpr int kTiles[] = {512, 1024, 1536, 2048};
+        static constexpr const char* kTileNames[] = {"512 px (fastest, blocky edges)", "1024 px (default)", "1536 px", "2048 px (original, slowest)"};
+        int sel = 1;
+        for (int i = 0; i < 4; ++i) if (kTiles[i] == g_switch_gfx.shadow_tile) sel = i;
+        if (ImGui::BeginCombo("Shadow map size", kTileNames[sel])) {
+            for (int i = 0; i < 4; ++i) {
+                if (ImGui::Selectable(kTileNames[i], i == sel)) {
+                    g_switch_gfx.shadow_tile = kTiles[i];
+                    pt::SceneRenderer::shadow_tile_override = static_cast<uint32_t>(kTiles[i]);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("Bigger maps give straighter shadow edges and cost GPU time and memory (1024 = 64 MB, 2048 = 256 MB). Save to keep it.");
+    }
+
     ImGui::SeparatorText("Render toggles (for finding what costs time)");
     pt::RenderToggles& t = app.scene.toggles;
     ImGui::Checkbox("Lights", &t.lights);
@@ -1500,8 +1540,6 @@ void DrawSwitchSection(App& app) {
     ImGui::Checkbox("Subsurface", &t.subsurface_scatter);
     ImGui::SameLine();
     ImGui::Checkbox("Atmosphere", &t.tpp_atmosphere);
-    ImGui::Checkbox("FXAA", &t.fxaa);
-    ImGui::SameLine();
     ImGui::Checkbox("Mirrors", &t.mirrors);
     if (ImGui::Button("Save Switch settings")) SaveSwitchConfig();
     ImGui::SameLine();
@@ -1511,8 +1549,11 @@ void DrawSwitchSection(App& app) {
 
 void DrawSettingsWindow(App& app, pt::InputDevice& input, pt::game::GameSound& sound, pt::game::Game& game) {
 #ifdef PT_SWITCH
-    ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(900.0f, 690.0f), ImGuiCond_Always);
+    // FirstUseEver: the touch screen moves (title bar) and resizes (bottom-right corner) the window, pt_imgui.ini keeps where it was left
+    ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(900.0f, 690.0f), ImGuiCond_FirstUseEver);
+    ImGui::GetStyle().ScrollbarSize = 28.0f;  // fingers: a wide scrollbar and a little extra reach around the widgets
+    ImGui::GetStyle().TouchExtraPadding = ImVec2(4.0f, 4.0f);
     if (!ImGui::Begin("Settings (Minus)")) {
 #else
     ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_FirstUseEver);
@@ -1522,6 +1563,27 @@ void DrawSettingsWindow(App& app, pt::InputDevice& input, pt::game::GameSound& s
         return;
     }
 #ifdef PT_SWITCH
+    // Open again where it was left: the focused item and the scroll position are remembered while the menu is closed (the window is not drawn
+    // then, and the gamepad navigation was reset to the first item)
+    static ImGuiID remembered_nav = 0;
+    static float remembered_scroll = 0.0f;
+    static int last_frame = -10;
+    ImGuiContext& ctx = *ImGui::GetCurrentContext();
+    ImGuiWindow* menu_window = ctx.CurrentWindow;
+    if (ImGui::GetFrameCount() > last_frame + 1) {
+        if (remembered_nav != 0) {
+            menu_window->NavLastIds[ImGuiNavLayer_Main] = remembered_nav;
+            ImGui::SetNavID(remembered_nav, ImGuiNavLayer_Main, menu_window->NavRootFocusScopeId, ImRect());
+            ctx.NavInitRequest = false;
+        }
+        ImGui::SetScrollY(remembered_scroll);
+    }
+    last_frame = ImGui::GetFrameCount();
+    // a finger dragging over the window body (not on a widget) scrolls it
+    if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseSource == ImGuiMouseSource_TouchScreen && ImGui::IsMouseDragging(0, 4.0f) &&
+        !ImGui::IsAnyItemActive()) {
+        ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+    }
     DrawSwitchSection(app);
 #endif
     pt::AppSettings& s = app.settings;
@@ -1612,6 +1674,10 @@ void DrawSettingsWindow(App& app, pt::InputDevice& input, pt::game::GameSound& s
     } else {
         ImGui::TextDisabled("Progress reset: the next start is a first boot.");
     }
+#ifdef PT_SWITCH
+    if (ctx.NavWindow == menu_window && ctx.NavId != 0) remembered_nav = ctx.NavId;
+    remembered_scroll = ImGui::GetScrollY();
+#endif
     ImGui::End();
     if (changed && !app.settings_path.empty()) {
         pt::SaveAppSettings(app.settings_path, s);
@@ -5354,6 +5420,9 @@ int RunGame(App& app, pt::Vfs& vfs) {
                 cap = 0;
             }
 #ifdef PT_SWITCH
+            app.scene.toggles.fxaa = g_switch_gfx.aa == 1;
+            app.scene.toggles.smaa = g_switch_gfx.aa == 2;
+            app.scene.toggles.taa = g_switch_gfx.aa == 3;
             app.renderer.swap_interval = g_switch_gfx.lock30 ? 2u : 0u;
             if (g_switch_gfx.lock30) cap = 0;  // the swap interval paces; a CPU deadline drifts against the VBlank and drops frames
 #endif
@@ -5525,6 +5594,8 @@ void ReadSwitchClockConfig(int& argc, char** argv) {
             else if (key == "auto") g_clock_config.automatic = value != 0;
             else if (key == "dynamic") g_switch_gfx.dynamic = value != 0;
             else if (key == "effects") pt::game::VfxScene::runtime_disabled = value == 0;
+            else if (key == "aa") g_switch_gfx.aa = static_cast<int>(std::min(value, 3u));
+            else if (key == "shadow_tile") g_switch_gfx.shadow_tile = static_cast<int>(std::clamp(value, 512u, 2048u));
             else if (key == "lock30") g_switch_gfx.lock30 = value != 0;
             else if (key == "overlay") g_switch_gfx.overlay = value != 0;
             else if (key == "fidelity") g_switch_gfx.fidelity = value != 0;
@@ -5542,6 +5613,10 @@ void ReadSwitchClockConfig(int& argc, char** argv) {
     }
     // test settings that win over a saved switch.ini (experiment .nro files): PT_BUDGET_MS=<ms>, PT_DYNAMIC=1 (dynamic size on, LSFG off)
     if (const char* v = std::getenv("PT_BUDGET_MS")) g_switch_gfx.target_ms = std::clamp(std::strtof(v, nullptr), 12.0f, 33.0f);
+    if (const char* v = std::getenv("PT_AA")) g_switch_gfx.aa = std::clamp(std::atoi(v), 0, 3);  // test override of switch.ini (0 off, 1 FXAA, 2 SMAA, 3 TAA)
+    if (const char* v = std::getenv("PT_TAA"); v && std::atoi(v) != 0) g_switch_gfx.aa = 3;
+    if (const char* v = std::getenv("PT_SMAA"); v && std::atoi(v) != 0) g_switch_gfx.aa = 2;
+    pt::SceneRenderer::shadow_tile_override = static_cast<uint32_t>(g_switch_gfx.shadow_tile);  // PT_SHADOW_TILE (test) still wins in EnsureShadowTarget
     if (const char* v = std::getenv("PT_DYNAMIC"); v && std::atoi(v) != 0) {
         g_switch_gfx.dynamic = true;
         g_switch_gfx.lock30 = true;

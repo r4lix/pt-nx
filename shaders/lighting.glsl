@@ -21,6 +21,16 @@ vec2 Dither2x2(vec3 frag) {
     return vec2(fract(0.5 * (frag.x - 0.5)) >= 0.3 ? 1.0 : -1.0, fract(0.5 * (frag.y - 0.5)) >= 0.3 ? 1.0 : -1.0);
 }
 
+// Tap spread in shadow-map texels (the four taps sit at +-0.5 * spread; 1.0 = the original, desktop). Each tap is already a hardware 2x2 compare; 2.0 widens the penumbra to
+// about three texels so the texel stair-steps of a low-resolution shadow edge blur out, with the same four taps (no extra cost).
+#ifndef PT_SHADOW_SPREAD
+#ifdef PT_SWITCH
+#define PT_SHADOW_SPREAD 2.0
+#else
+#define PT_SHADOW_SPREAD 1.0
+#endif
+#endif
+
 float ShadowPcf(vec2 uv, float zref, vec2 lo, vec2 hi, vec2 texel, vec3 frag, float rotate, float frame_time, vec4 temporal) {
     vec2 d = temporal.w > 0.5 && rotate <= 0.5 ? temporal.yz : Dither2x2(frag);
     mat2 rot = mat2(1.0);
@@ -32,10 +42,10 @@ float ShadowPcf(vec2 uv, float zref, vec2 lo, vec2 hi, vec2 texel, vec3 frag, fl
         float sin_a = sin(angle);
         rot = mat2(cos_a, -sin_a, sin_a, cos_a);
     }
-    vec2 t0 = rot * vec2( 0.5, -0.5) + 0.125 * d;
-    vec2 t1 = rot * vec2(-0.5, -0.5) + 0.125 * d;
-    vec2 t2 = rot * vec2(-0.5,  0.5) + 0.125 * d;
-    vec2 t3 = rot * vec2( 0.5,  0.5) + 0.125 * d;
+    vec2 t0 = rot * (PT_SHADOW_SPREAD * vec2( 0.5, -0.5)) + 0.125 * d;
+    vec2 t1 = rot * (PT_SHADOW_SPREAD * vec2(-0.5, -0.5)) + 0.125 * d;
+    vec2 t2 = rot * (PT_SHADOW_SPREAD * vec2(-0.5,  0.5)) + 0.125 * d;
+    vec2 t3 = rot * (PT_SHADOW_SPREAD * vec2( 0.5,  0.5)) + 0.125 * d;
     float sum = 0.0;
     sum += ShadowTap(clamp(uv + t0 * texel, lo, hi), zref);
     sum += ShadowTap(clamp(uv + t1 * texel, lo, hi), zref);

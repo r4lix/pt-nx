@@ -17,6 +17,7 @@ distributed under the GPL version 3 (`third_party/lsfg-vk/LICENSE.md` holds its 
 | stb | MIT / public domain | https://github.com/nothings/stb |
 | Lua 5.1 | MIT | https://www.lua.org |
 | libogg, libvorbis | BSD-3-Clause | https://github.com/xiph/ogg, https://github.com/xiph/vorbis |
+| SMAA 1x (anti-aliasing, `shaders/smaa/`, with its lookup tables in `src/engine/render/smaa_tables.h`) | MIT | https://github.com/iryoku/smaa |
 | bc7enc_rdo | MIT / public domain | https://github.com/richgel999/bc7enc_rdo |
 | Expat | MIT | https://github.com/libexpat/libexpat |
 | HarfBuzz | MIT ("Old MIT") | https://github.com/harfbuzz/harfbuzz |

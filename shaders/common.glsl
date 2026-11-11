@@ -70,7 +70,7 @@ layout(std430, set = 1, binding = 1) readonly buffer SkinData {
     mat4 skin[];
 };
 
-layout(set = 1, binding = 2) uniform texture2D images[59];
+layout(set = 1, binding = 2) uniform texture2D images[64];
 layout(set = 1, binding = 3) uniform sampler samplers[5];
 layout(set = 1, binding = 4) uniform texture3D lut2_image;
 
@@ -80,6 +80,11 @@ layout(set = 1, binding = 4) uniform texture3D lut2_image;
 #define IMG_DEPTH 3
 #define IMG_LIGHT_HALF_D 56  // half-resolution light sums (light_all_half.frag, read by light_resolve.frag)
 #define IMG_LIGHT_HALF_S 57
+#define IMG_TAA_HISTORY 59
+#define IMG_SMAA_EDGES 60
+#define IMG_SMAA_WEIGHTS 61
+#define IMG_SMAA_AREA 62
+#define IMG_SMAA_SEARCH 63
 #define IMG_PARTICLES_HALF 58  // particle effects drawn at half resolution (vfx_composite_half.frag)
 #define IMG_DIFFUSE 4
 #define IMG_SPECULAR 5

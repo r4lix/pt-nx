@@ -1,5 +1,6 @@
 #include "engine/render/texture_manager.h"
 
+#include <cstdlib>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -228,7 +229,7 @@ VkSampler TextureManager::CreateSampler(int anisotropy) const {
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.anisotropyEnable = anisotropy > 1 ? VK_TRUE : VK_FALSE;
     sampler_info.maxAnisotropy = anisotropy > 1 ? static_cast<float>(anisotropy) : 1.0f;
-    sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+    sampler_info.maxLod = std::getenv("PT_NO_MIPS") ? 0.0f : VK_LOD_CLAMP_NONE;  // PT_NO_MIPS: debug, level 0 only
     VkSampler sampler = VK_NULL_HANDLE;
     vk::Check(vkCreateSampler(ctx_->device, &sampler_info, nullptr, &sampler), "texture sampler");
     return sampler;

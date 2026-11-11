@@ -1,10 +1,11 @@
 // Nintendo Switch replacement for Dear ImGui's SDL3 platform backend (backends/imgui_impl_sdl3.h): the same five entry points
-// the engine calls, built on the SDL3 compatible layer. Display size, frame time and gamepad navigation; no mouse or keyboard.
+// the engine calls, built on the SDL3 compatible layer. Display size, frame time, gamepad navigation and the touch screen (as a mouse); no keyboard.
 #pragma once
 
 #include <imgui.h>
 
 #include <SDL3/SDL.h>
+#include <switch.h>
 
 enum ImGui_ImplSDL3_GamepadMode { ImGui_ImplSDL3_GamepadMode_AutoFirst, ImGui_ImplSDL3_GamepadMode_AutoAll, ImGui_ImplSDL3_GamepadMode_Manual };
 
@@ -25,6 +26,7 @@ inline bool ImGui_ImplSDL3_InitForVulkan(SDL_Window* window) {
     ImGuiIO& io = ImGui::GetIO();
     io.BackendPlatformName = "imgui_impl_sdl3_switch";
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    io.ConfigWindowsMoveFromTitleBarOnly = true;  // a finger dragging the window body scrolls it (DrawSettingsWindow), the title bar moves it
     return true;
 }
 
@@ -51,6 +53,30 @@ inline void ImGui_ImplSDL3_NewFrame() {
     const double dt = static_cast<double>(now - state.last_ns) / 1e9;
     state.last_ns = now;
     io.DeltaTime = dt > 0.0 ? static_cast<float>(dt) : 1.0f / 60.0f;
+
+    // touch screen as the mouse (finger 1 = left button): move, resize and drag the menu windows, tap the widgets
+    {
+        static bool touch_ready = false;
+        static bool touching = false;
+        if (!touch_ready) {
+            hidInitializeTouchScreen();
+            touch_ready = true;
+        }
+        HidTouchScreenState touch{};
+        const bool have = hidGetTouchScreenStates(&touch, 1) > 0 && touch.count > 0;
+        io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+        if (have) {
+            // the touch screen reports 1280x720 whatever the render size is
+            io.AddMousePosEvent(static_cast<float>(touch.touches[0].x) * io.DisplaySize.x / 1280.0f,
+                                static_cast<float>(touch.touches[0].y) * io.DisplaySize.y / 720.0f);
+            if (!touching) io.AddMouseButtonEvent(0, true);
+            touching = true;
+        } else if (touching) {
+            io.AddMouseButtonEvent(0, false);
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);  // no hover once the finger is up
+            touching = false;
+        }
+    }
 
     // gamepad navigation: the console's A is SDL's east, B south (Nintendo layout: A confirms, B cancels)
     SDL_Gamepad* pad = SDL_OpenGamepad(1);

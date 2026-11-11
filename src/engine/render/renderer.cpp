@@ -106,7 +106,7 @@ bool Renderer::Init(SDL_Window* window, const RendererSettings& settings) {
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+    sampler_info.maxLod = std::getenv("PT_NO_MIPS") ? 0.0f : VK_LOD_CLAMP_NONE;  // PT_NO_MIPS: debug, level 0 only
     vkCreateSampler(ctx_.device, &sampler_info, nullptr, &wrap_sampler_);
     if (!CreateTargets(width, height) || !CreateCompositePipeline(output_format)) {
         return false;

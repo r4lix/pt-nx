@@ -26,7 +26,7 @@ layout(std430, set = 1, binding = 0) readonly buffer UiDraws {
 };
 layout(set = 1, binding = 1) uniform sampler2D scene_color;
 
-vec4 Sample(uint packed, vec2 uv) {
+vec4 SampleL(uint packed, vec2 uv, float lod) {
     uint index = packed & 0x3FFFFFFFu;
     if ((packed & 0xC0000000u) != 0u) {
         vec2 half_texel = 0.5 / vec2(textureSize(textures[nonuniformEXT(index)], 0));
@@ -37,9 +37,17 @@ vec4 Sample(uint packed, vec2 uv) {
             uv.y = clamp(uv.y, half_texel.y, 1.0 - half_texel.y);
         }
     }
-    // The hardware picks the mip level. (A level computed here from dFdx/dFdy of the uv, as the desktop build did, came out wrong along the
-    // diagonal of every sprite quad on the Switch's NVK driver: slashes across icons and bars, outlines around sprites.)
+    // Switch (NVK): the implicit LOD (hardware or dFdx-based) is wrong in the 2x2 quads along a sprite quad's diagonal and joins (faint dotted
+    // lines, slashes), so the level is explicit: 0 for 1:1 UI, computed from constants for the minified grain layer.
+#ifdef PT_SWITCH
+    return textureLod(textures[nonuniformEXT(index)], uv, max(lod, 0.0));
+#else
     return texture(textures[nonuniformEXT(index)], uv);
+#endif
+}
+
+vec4 Sample(uint packed, vec2 uv) {
+    return SampleL(packed, uv, 0.0);
 }
 
 vec4 ShadeMaterial(UiDraw d) {
@@ -51,7 +59,11 @@ vec4 ShadeMaterial(UiDraw d) {
     vec4 base = Sample(d.textures.x, base_uv);
     vec4 layer = Sample(d.textures.y, layer_uv);
     vec4 mask = Sample(d.textures.z, mask_uv);
-    vec4 noise = Sample(d.textures.w, screen_uv);
+    // The grain layer is minified by a constant factor (uv step per pixel = screen.z * m[5].zw): level from that, not from derivatives.
+    vec2 noise_size = vec2(textureSize(textures[nonuniformEXT(d.textures.w & 0x3FFFFFFFu)], 0));
+    vec2 noise_step = abs(d.m[5].zw) * d.screen.z * noise_size;
+    float noise_lod = max(log2(max(max(noise_step.x, noise_step.y), 1e-4)), 0.0);
+    vec4 noise = SampleL(d.textures.w, screen_uv, noise_lod);
     vec3 rgb = clamp(mix(base.rgb, layer.rgb, d.m[6].y), 0.0, 1.0) * in_color.rgb;
     float alpha = clamp(mix(base.a, layer.a, d.m[6].y), 0.0, 1.0) * (d.m[6].z * (mask.g - 1.0) + 1.0);
     alpha = clamp(alpha * (d.m[6].w * (noise.g - 1.0) + 1.0), 0.0, 1.0) * in_color.a;

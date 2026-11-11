@@ -645,7 +645,19 @@ size_t __nx_heap_size = 0;
 // nxlink (`nxlink -s`), stdout and stderr, and with them the engine's log, stream to the PC; started from the menu nothing is set up.
 static bool g_socket_up = false;
 
+// Started as an installed title (the nroloader NSP, title id 0x01005CB000030000): libnx must send ISelfController::Exit when the game quits by
+// itself, or Home says "The software was closed because an error occurred". From hbmenu the .nro still returns to its loader.
+static bool g_as_title = false;
+
 extern "C" void userAppInit(void) {
+    {
+        u64 pid = 0;
+        if (R_SUCCEEDED(svcGetInfo(&pid, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && pid == 0x01005CB000030000ULL) {
+            extern u32 __nx_applet_exit_mode;
+            __nx_applet_exit_mode = 1;
+            g_as_title = true;
+        }
+    }
     romfsInit();
     if (__nxlink_host.s_addr != 0 && R_SUCCEEDED(socketInitializeDefault())) {
         g_socket_up = true;
@@ -666,6 +678,8 @@ extern "C" void userAppExit(void) {
     pt_switch_close_clock_services();  // after the releases above, which go through the clock manager's session
     if (g_socket_up) socketExit();
     romfsExit();
+    // libnx's Exit path never returns to the loader, which would have committed the virtual SD / device save: do it here
+    if (g_as_title) fsdevCommitDevice("sdmc");
 }
 
 extern "C" int SDL_GetSystemRAM(void) {

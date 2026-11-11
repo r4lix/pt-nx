@@ -47,7 +47,12 @@ glm::mat4 FoxView(const glm::mat4& gl_view) {
 bool ShadowLegacy() {
     static const bool legacy = [] {
         const char* s = std::getenv("PT_SHADOW_LEGACY");
+#ifdef PT_SWITCH
+        // the raster depth bias is on by default on the Switch (without it spot shadows self-shadow in diagonal bands on walls); =0 turns it off
+        return !s || std::string_view(s) != "0";
+#else
         return s && std::string_view(s) == "1";
+#endif
     }();
     return legacy;
 }
@@ -313,6 +318,40 @@ void SceneRenderer::PrepareFrame(const Camera& camera, const std::vector<DrawIte
         projection[2][0] -= up_.jitter_ndc.x;
         projection[2][1] -= up_.jitter_ndc.y;
     }
+    // TAA: a Halton (2, 3) sub-pixel jitter over 8 frames, in the main view only (the same projection tweak the upscalers use)
+    static const bool env_taa = [] {
+        const char* e = std::getenv("PT_TAA");
+        return e && std::atoi(e) != 0;
+    }();
+    static bool env_taa_applied = false;
+    if (!env_taa_applied) {
+        env_taa_applied = true;
+        if (env_taa) toggles.taa = true;
+        if (const char* e = std::getenv("PT_SMAA"); e && std::atoi(e) != 0) toggles.smaa = true;
+    }
+    taa_active_ = toggles.taa && !up_.enabled && (debug_view == DebugView::Lit || debug_view == DebugView::Ambient) && extent_.width > 0 &&
+                  extent_.width == output_extent_.width && extent_.height == output_extent_.height;
+    if (static bool logged = false; toggles.taa && !logged) {
+        logged = true;
+        LogInfo("taa: active {} (upscaler {} view {} extent {}x{} output {}x{})", taa_active_, up_.enabled, static_cast<int>(debug_view), extent_.width,
+                extent_.height, output_extent_.width, output_extent_.height);
+    }
+    taa_jitter_ndc_ = glm::vec2(0.0f);
+    if (taa_active_) {
+        auto halton = [](uint32_t i, uint32_t base) {
+            float f = 1.0f, r = 0.0f;
+            for (++i; i > 0; i /= base) {
+                f /= static_cast<float>(base);
+                r += f * static_cast<float>(i % base);
+            }
+            return r;
+        };
+        const glm::vec2 pixels(halton(taa_index_, 2) - 0.5f, halton(taa_index_, 3) - 0.5f);
+        taa_index_ = (taa_index_ + 1) % 8;
+        taa_jitter_ndc_ = 2.0f * pixels / glm::vec2(static_cast<float>(extent_.width), static_cast<float>(extent_.height));
+        projection[2][0] -= taa_jitter_ndc_.x;
+        projection[2][1] -= taa_jitter_ndc_.y;
+    }
     const glm::mat4 gl_view = camera.View();
     const float time = static_cast<float>(frame_counter_) / 60.0f;
 
@@ -336,6 +375,7 @@ void SceneRenderer::PrepareFrame(const Camera& camera, const std::vector<DrawIte
     };
     main_view_ = ViewSetup{};
     main_view_.index = add_view(projection, gl_view, camera.position, glm::vec4(0.0f));
+    if (taa_active_) frame_->views[main_view_.index].jitter.x = taa_jitter_ndc_.x, frame_->views[main_view_.index].jitter.y = taa_jitter_ndc_.y;
     main_view_.view = gl_view;
     main_view_.projection = projection;
     main_view_.eye = camera.position;
@@ -352,6 +392,7 @@ void SceneRenderer::PrepareFrame(const Camera& camera, const std::vector<DrawIte
             glm::vec4(static_cast<float>((frame_counter_ * 39u) & 63u), kTaps[frame_counter_ & 3u], 1.0f);
     }
     motion_view_ = add_view(projection, gl_view, camera.position, glm::vec4(0.0f));
+    if (taa_active_) frame_->views[motion_view_].jitter.x = taa_jitter_ndc_.x, frame_->views[motion_view_].jitter.y = taa_jitter_ndc_.y;
     frame_->views[motion_view_].dominant_light = dominant_light;
     frame_->views[motion_view_].view_projection = previous_view_projection_;
     post_view_ = main_view_.index;
@@ -2809,7 +2850,7 @@ void SceneRenderer::RecordView(VkCommandBuffer cmd, const ViewSetup& view, Rende
     EndLabel(cmd);
     if (main_view) {
         Stamp(cmd, 3);
-        if (MotionBlurActive()) {
+        if (MotionBlurActive() || taa_active_) {
             BeginLabel(cmd, "object velocity");
             RecordObjectVelocity(cmd, view);
             EndLabel(cmd);

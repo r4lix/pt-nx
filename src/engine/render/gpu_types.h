@@ -11,7 +11,7 @@ constexpr uint32_t kMaxViews = 64;
 constexpr uint32_t kMaxLights = 256;
 constexpr uint32_t kMaxProbes = 512;
 constexpr uint32_t kMaxSkinMatrices = 16384;
-constexpr uint32_t kImageSlots = 59;
+constexpr uint32_t kImageSlots = 64;
 constexpr uint32_t kInvalid = 0xFFFFFFFFu;
 constexpr uint32_t kLuminanceGroups = 16384;
 constexpr uint32_t kReflectionReadback = kLuminanceGroups;
@@ -138,6 +138,11 @@ enum Image : uint32_t {
     kImgLightHalfD = 56,
     kImgLightHalfS = 57,
     kImgParticlesHalf = 58,
+    kImgTaaHistory = 59,
+    kImgSmaaEdges = 60,
+    kImgSmaaWeights = 61,
+    kResSmaaArea = 62,
+    kResSmaaSearch = 63,
 };
 
 enum Sampler : uint32_t {

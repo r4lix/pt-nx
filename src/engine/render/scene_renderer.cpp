@@ -1,4 +1,5 @@
 #include "engine/render/scene_renderer.h"
+#include "engine/render/smaa_tables.h"
 
 #include <thread>
 #include <glm/gtc/matrix_transform.hpp>
@@ -119,6 +120,7 @@ const char* DebugViewNames() {
 
 bool SceneRenderer::EnsureShadowTarget() {
     uint32_t tile = graphics.shadow_quality<=1?512u:graphics.shadow_quality==2?1024u:2048u;
+    if (shadow_tile_override != 0) tile = std::clamp(shadow_tile_override, 128u, 2048u);
     if (const char* env = std::getenv("PT_SHADOW_TILE")) tile = std::clamp(static_cast<uint32_t>(std::atoi(env)), 128u, 2048u);  // test aid
     const uint32_t size=tile*4;
     if(shadow_.Valid() && shadow_.Extent().width==size) return true;
@@ -147,6 +149,9 @@ bool SceneRenderer::Init(Renderer& renderer, TextureManager& textures) {
 
     VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     sampler.maxLod = VK_LOD_CLAMP_NONE;
+    if (std::getenv("PT_NO_MIPS")) { /* debug: level 0 only */
+        sampler.maxLod = 0.0f;
+    }
     const VkFilter filters[4] = {VK_FILTER_NEAREST, VK_FILTER_LINEAR, VK_FILTER_NEAREST, VK_FILTER_LINEAR};
     const VkSamplerAddressMode clamp = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     const VkSamplerAddressMode repeat = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -473,6 +478,16 @@ bool SceneRenderer::CreatePipelines() {
     tonemap_ = CreateGraphicsPipeline(device_, post);
     post.fragment = "fxaa.frag";
     fxaa_ = CreateGraphicsPipeline(device_, post);
+    post.fragment = "taa.frag";
+    taa_ = CreateGraphicsPipeline(device_, post);
+    post.colors = {VK_FORMAT_R8G8_UNORM};
+    post.fragment = "smaa_edges.frag";
+    smaa_edges_pipe_ = CreateGraphicsPipeline(device_, post);
+    post.colors = {kLdrFormat};
+    post.fragment = "smaa_weights.frag";
+    smaa_weights_pipe_ = CreateGraphicsPipeline(device_, post);
+    post.fragment = "smaa_blend.frag";
+    smaa_blend_pipe_ = CreateGraphicsPipeline(device_, post);
     post.colors = {kHdrFormat};
     post.fragment = "mirror_temporal.frag";
     mirror_temporal_pipeline_ = CreateGraphicsPipeline(device_, post);
@@ -543,7 +558,7 @@ bool SceneRenderer::CreatePipelines() {
     }
 
     const VkPipeline all[] = {gbuffer_, decal_, shadow_pipeline_, probe_, probe_resolve_, light_, compose_, forward_, forward_emissive_, luminance_, bright_,
-                              reflect_colour_, kawase_, bloom_add_, kawase_sum_, gaussian_, tonemap_, fxaa_, dof_ratio_, dof_down_, dof_blur_, dof_blend_, mb_velocity_,
+                              reflect_colour_, kawase_, bloom_add_, kawase_sum_, gaussian_, tonemap_, fxaa_, taa_, smaa_edges_pipe_, smaa_weights_pipe_, smaa_blend_pipe_, dof_ratio_, dof_down_, dof_blur_, dof_blend_, mb_velocity_,
                               mb_tile_pipeline_, mb_bake_pipeline_, mb_mcguire_, mb_composite_, velocity_pipeline_, fsblur_, banding_, screen_fx_,
                               debug_, occlusion_, occlusion_blur_, reflect_make_, reflect_blend_, vfx_composite_, mirror_temporal_pipeline_,
                               reflect_layer_pipeline_, reflect_temporal_pipeline_};
@@ -578,7 +593,7 @@ void SceneRenderer::DestroyPipelines() {
     }
     light_half_variants_.clear();
     VkPipeline* all[] = {&gbuffer_, &gbuffer_early_, &decal_, &shadow_pipeline_, &shadow_depth_only_, &probe_, &probe_list_, &probe_list_sg_, &probe_resolve_, &light_, &light_all_, &light_all_half_, &light_all_half_lean_, &light_resolve_, &compose_, &forward_, &forward_emissive_, &luminance_, &bright_,
-                         &reflect_colour_, &kawase_, &bloom_add_, &kawase_sum_, &gaussian_, &tonemap_, &fxaa_, &dof_ratio_, &dof_down_, &dof_blur_, &dof_blend_,
+                         &reflect_colour_, &kawase_, &bloom_add_, &kawase_sum_, &gaussian_, &tonemap_, &fxaa_, &taa_, &smaa_edges_pipe_, &smaa_weights_pipe_, &smaa_blend_pipe_, &dof_ratio_, &dof_down_, &dof_blur_, &dof_blend_,
                          &mb_velocity_, &mb_tile_pipeline_, &mb_bake_pipeline_, &mb_mcguire_, &mb_composite_, &velocity_pipeline_, &fsblur_,
                          &banding_, &screen_fx_, &debug_, &occlusion_, &occlusion_blur_, &reflect_make_, &reflect_blend_, &vfx_composite_, &vfx_composite_half_, &vfx_depth_half_,
                          &mirror_temporal_pipeline_, &reflect_layer_pipeline_, &reflect_temporal_pipeline_};
@@ -680,7 +695,7 @@ void SceneRenderer::Shutdown() {
     ctx.DestroyBuffer(dump_mirror_);
     ctx.DestroyImage(shadow_.image);
     ctx.DestroyImage(shadow_static_.image);
-    vk::Image* images[] = {&lut1_, &lut2_, &material_tex_, &dither_, &color_lut_, &color_lut_prev_, &noise_, &mask_, &white_};
+    vk::Image* images[] = {&lut1_, &lut2_, &material_tex_, &dither_, &color_lut_, &color_lut_prev_, &noise_, &mask_, &white_, &smaa_area_, &smaa_search_};
     for (vk::Image* image : images) {
         ctx.DestroyImage(*image);
     }
@@ -712,7 +727,7 @@ bool SceneRenderer::CreateTarget(RenderTarget& target, VkFormat format, VkExtent
 void SceneRenderer::DestroyTargets() {
     vk::Context& ctx = renderer_->Context();
     RenderTarget* targets[] = {&albedo_, &normal_, &material_, &depth_, &diffuse_, &specular_, &probe_acc_, &light_half_[0], &light_half_[1], &hdr_, &bloom_[0], &bloom_[1], &bloom_[2],
-                               &flare_, &ldr_[0], &ldr_[1], &history_, &mirror_, &ao_[0], &ao_[1], &refmap_, &hdr_copy_, &particles_, &particles_half_, &depth_half_, &dof_half_,
+                               &flare_, &ldr_[0], &ldr_[1], &history_, &taa_history_, &smaa_edges_, &smaa_weights_, &mirror_, &ao_[0], &ao_[1], &refmap_, &hdr_copy_, &particles_, &particles_half_, &depth_half_, &dof_half_,
                                &dof_quarter_[0], &dof_quarter_[1], &dof_eighth_[0], &dof_eighth_[1], &velocity_, &object_velocity_,
                                &mb_tile_[0], &mb_tile_[1], &mb_tile_[2], &mb_tile_[3], &mb_tile_[4], &mb_neighbour_, &mb_bake_,
                                &mb_blur_[0], &mb_blur_[1], &mirror_history_, &mirror_temporal_, &reflect_layer_, &reflect_offset_,
@@ -775,6 +790,8 @@ bool SceneRenderer::EnsureTargets(VkExtent2D extent, VkExtent2D output, bool ups
               CreateTarget(ldr_[0], kLdrFormat, output, color | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, c) &&
               CreateTarget(ldr_[1], kLdrFormat, output, color | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, c) &&
               CreateTarget(history_, kLdrFormat, output, color | VK_IMAGE_USAGE_TRANSFER_DST_BIT, c) &&
+              CreateTarget(taa_history_, kLdrFormat, output, color | VK_IMAGE_USAGE_TRANSFER_DST_BIT, c) &&
+              CreateTarget(smaa_edges_, VK_FORMAT_R8G8_UNORM, output, color, c) && CreateTarget(smaa_weights_, kLdrFormat, output, color, c) &&
               CreateTarget(ao_[0], kAoFormat, extent, color, c) && CreateTarget(ao_[1], kAoFormat, extent, color | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, c);
     const VkExtent2D shift1{std::max(output.width >> 1, 1u), std::max(output.height >> 1, 1u)};
     const VkExtent2D shift2{std::max(output.width >> 2, 1u), std::max(output.height >> 2, 1u)};
@@ -805,7 +822,7 @@ bool SceneRenderer::EnsureTargets(VkExtent2D extent, VkExtent2D output, bool ups
     }
     renderer_->Context().Submit([&](VkCommandBuffer cmd) {
         RenderTarget* colors[] = {&albedo_, &normal_, &material_, &diffuse_, &specular_, &probe_acc_, &light_half_[0], &light_half_[1], &hdr_, &mirror_, &bloom_[0], &bloom_[1], &bloom_[2],
-                                  &flare_, &ldr_[0], &ldr_[1], &history_, &ao_[0], &ao_[1], &refmap_, &hdr_copy_, &particles_, &dof_half_,
+                                  &flare_, &ldr_[0], &ldr_[1], &history_, &taa_history_, &smaa_edges_, &smaa_weights_, &ao_[0], &ao_[1], &refmap_, &hdr_copy_, &particles_, &dof_half_,
                                   &dof_quarter_[0], &dof_quarter_[1], &dof_eighth_[0], &dof_eighth_[1], &velocity_, &object_velocity_, &mb_tile_[0],
                                   &mb_tile_[1], &mb_tile_[2], &mb_tile_[3], &mb_tile_[4], &mb_neighbour_, &mb_bake_, &mb_blur_[0],
                                   &mb_blur_[1]};
@@ -882,6 +899,11 @@ void SceneRenderer::WriteImageDescriptors() {
     set_target(gpu::kImgLdrA, ldr_[0]);
     set_target(gpu::kImgLdrB, ldr_[1]);
     set_target(gpu::kImgHistory, history_);
+    set_target(gpu::kImgTaaHistory, taa_history_);
+    set_target(gpu::kImgSmaaEdges, smaa_edges_);
+    set_target(gpu::kImgSmaaWeights, smaa_weights_);
+    set_image(gpu::kResSmaaArea, smaa_area_);
+    set_image(gpu::kResSmaaSearch, smaa_search_);
     set_target(gpu::kImgDofHalf, dof_half_);
     set_target(gpu::kImgDofQuarterA, dof_quarter_[0]);
     set_target(gpu::kImgDofQuarterB, dof_quarter_[1]);
@@ -1097,6 +1119,8 @@ void SceneRenderer::CreateBuiltinResources() {
         }
     }
     UploadImage(dither_, VK_FORMAT_R8G8B8A8_UNORM, {8, 8, 1}, dither.data(), dither.size());
+    UploadImage(smaa_area_, VK_FORMAT_R8G8_UNORM, {160, 560, 1}, smaa::kAreaTex, sizeof(smaa::kAreaTex));
+    UploadImage(smaa_search_, VK_FORMAT_R8_UNORM, {64, 16, 1}, smaa::kSearchTex, sizeof(smaa::kSearchTex));
 
     std::vector<uint8_t> material(256 * 2 * 4, 0);
     for (int i = 0; i < 256; ++i) {

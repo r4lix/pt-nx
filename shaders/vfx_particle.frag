@@ -59,6 +59,12 @@ vec3 LinearToSrgb(vec3 c) {
     return mix(1.055 * pow(max(c, vec3(1e-5)), vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThanEqual(c, vec3(0.0031308)));
 }
 
+#ifdef PT_SWITCH
+#define SAMPLE_VFX(s, uv) textureLod((s), (uv), 0.0)
+#else
+#define SAMPLE_VFX(s, uv) texture((s), (uv))
+#endif
+
 float LinearDepth(float d) {
     return push.frame.y / max(d, 1e-7);
 }
@@ -128,9 +134,9 @@ void main() {
         base_uv = in_extra.xy + vec2(in_extra.w * centered.x - in_extra.z * centered.y,
                                     in_extra.z * centered.x + in_extra.w * centered.y);
     }
-    vec4 tex = texture(textures[nonuniformEXT(in_info.x)], base_uv);
+    vec4 tex = SAMPLE_VFX(textures[nonuniformEXT(in_info.x)], base_uv);
     if ((flags & kAnimeBlend) != 0u) {
-        tex = mix(tex, texture(textures[nonuniformEXT(in_info.x)], in_uv.zw), in_params.w);
+        tex = mix(tex, SAMPLE_VFX(textures[nonuniformEXT(in_info.x)], in_uv.zw), in_params.w);
     }
     vec3 rgb;
     float alpha;
@@ -181,8 +187,8 @@ void main() {
                                pixel.y * in_rain_rotation.y + pixel.x * in_rain_rotation.x) + in_luminance.z;
         vec2 uv1 = scale * vec2(pixel.x * in_rain_rotation.w - pixel.y * in_rain_rotation.z,
                                pixel.y * in_rain_rotation.w + pixel.x * in_rain_rotation.z) + in_luminance.w;
-        float rain = in_info.z == kNoTexture ? 1.0 : texture(textures[nonuniformEXT(in_info.z)], uv0).a +
-                                                    texture(textures[nonuniformEXT(in_info.z)], uv1).a;
+        float rain = in_info.z == kNoTexture ? 1.0 : SAMPLE_VFX(textures[nonuniformEXT(in_info.z)], uv0).a +
+                                                    SAMPLE_VFX(textures[nonuniformEXT(in_info.z)], uv1).a;
         vec3 c = tex.rgb * in_color.rgb * rain * 0.5;
         rgb = mix(pow(max((c + 0.055) / 1.055, vec3(1e-5)), vec3(2.4)), c / 12.92,
                   lessThanEqual(c, vec3(0.03928)));

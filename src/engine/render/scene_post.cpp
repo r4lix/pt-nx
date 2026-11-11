@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "engine/core/log.h"
 #include "engine/render/scene_renderer.h"
 
 namespace pt {
@@ -173,7 +174,54 @@ void SceneRenderer::RecordPost(VkCommandBuffer cmd, const SceneLighting& lightin
         current = 1 - current;
     };
 
-    if (toggles.fxaa && !up_.enabled && !native_aa_order) {
+    // TAA runs in FXAA's place
+    const bool taa_run = taa_active_ && taa_;
+    if (taa_run) {
+        const bool fresh = taa_cut_ || !taa_history_valid_ || taa_extent_.width != output_extent_.width || taa_extent_.height != output_extent_.height;
+        UseTargets(cmd, {{&depth_, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL}, {&taa_history_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}});
+        static uint32_t taa_frames = 0, taa_fresh = 0, taa_cuts = 0, taa_invalid = 0;
+        ++taa_frames;
+        taa_fresh += fresh ? 1 : 0;
+        taa_cuts += taa_cut_ ? 1 : 0;
+        taa_invalid += taa_history_valid_ ? 0 : 1;
+        if (taa_frames % 300 == 0) LogInfo("taa: {} frames, {} fresh ({} cut, {} no history)", taa_frames, taa_fresh, taa_cuts, taa_invalid);
+        gpu::PassPush taa;
+        taa.ids = glm::uvec4(ldr_index(current), gpu::kImgTaaHistory, gpu::kImgObjectVelocity, main_view_.index);
+        taa.f0 = glm::vec4(0.88f, fresh ? 1.0f : 0.0f, 0.0f, 0.0f);
+        taa.m = previous_view_projection_;
+        run(taa_, taa);
+        UseTargets(cmd, {{&ldr_[current], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL}, {&taa_history_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL}});
+        {
+            VkImageCopy copy{};
+            copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.dstSubresource = copy.srcSubresource;
+            copy.extent = {output_extent_.width, output_extent_.height, 1};
+            vkCmdCopyImage(cmd, ldr_[current].image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, taa_history_.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        }
+        UseTargets(cmd, {{&ldr_[current], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {&taa_history_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}});
+        taa_history_valid_ = true;
+        taa_extent_ = output_extent_;
+    } else {
+        taa_history_valid_ = false;
+    }
+    // SMAA 1x: luma edges, blending weights, neighbourhood blending (shaders/smaa_*.frag)
+    const bool smaa_run = !taa_run && toggles.smaa && !up_.enabled && smaa_edges_pipe_ && smaa_weights_pipe_ && smaa_blend_pipe_ && smaa_area_.view &&
+                          smaa_search_.view;
+    if (smaa_run) {
+        gpu::PassPush smaa;
+        smaa.ids = glm::uvec4(ldr_index(current), 0, 0, post_view_);
+        UseTargets(cmd, {{&ldr_[current], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {&smaa_edges_, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}});
+        BeginPass(cmd, output_extent_, {{&smaa_edges_, true, {}}});
+        Fullscreen(cmd, smaa_edges_pipe_, smaa);
+        vkCmdEndRendering(cmd);
+        UseTargets(cmd, {{&smaa_edges_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {&smaa_weights_, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}});
+        BeginPass(cmd, output_extent_, {{&smaa_weights_, true, {}}});
+        Fullscreen(cmd, smaa_weights_pipe_, smaa);
+        vkCmdEndRendering(cmd);
+        UseTargets(cmd, {{&smaa_weights_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}});
+        run(smaa_blend_pipe_, smaa);
+    }
+    if (toggles.fxaa && !up_.enabled && !native_aa_order && !taa_run && !smaa_run) {
         push.ids.x = ldr_index(current);
         run(fxaa_, push);
     }
@@ -361,12 +409,15 @@ void SceneRenderer::UpdateMotion(const Camera& camera, float dt) {
     motion_reference_set_ = false;
     last_camera_ = camera;
     has_last_camera_ = true;
+    taa_cut_ = false;
     if (glm::distance(previous.position, camera.position) > kCameraCutDistance || glm::dot(previous.Forward(), camera.Forward()) < 0.7071f) {
         previous = camera;
         up_.reset = true;
+        taa_cut_ = true;
     }
     if (!motion_history_valid_) {
         up_.reset = true;
+        taa_cut_ = true;
     }
     const float aspect = static_cast<float>(output_extent_.width) / static_cast<float>(std::max(1u, output_extent_.height));
     previous_view_projection_ = previous.Projection(aspect) * previous.View();
